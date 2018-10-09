@@ -1,4 +1,4 @@
-Homeowrk 04 README
+Homework 04 README
 ================
 Mielle
 10/8/2018
