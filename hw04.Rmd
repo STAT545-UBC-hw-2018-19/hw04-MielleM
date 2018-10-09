@@ -1,0 +1,337 @@
+---
+title: "Exploring reshaping and joins with dplyr and gapminder"
+author: "Mielle Michaux"
+date: "October 8, 2018"
+output:
+  github_document:
+    toc: true
+    toc_depth: 4
+always_allow_html: yes
+---
+
+## Getting started 
+```{r}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(gapminder))
+suppressPackageStartupMessages(library(kableExtra))
+suppressPackageStartupMessages(library(maps))
+suppressPackageStartupMessages(library(RColorBrewer)) # for some nice colors
+
+suppressPackageStartupMessages(library(mapdata)) #library of some useable maps, won't be applying in this tutorial however
+```
+
+
+
+## Reshape data
+
+#### Reshaping life expectancy by country
+
+> Objective: Make a tibble with one row per year and columns for life expectancy for two or more countries.
+Use knitr::kable() to make this table look pretty in your rendered homework.
+Take advantage of this new data shape to scatterplot life expectancy for one country against that of another.
+
+I found it hard to conceptualize how my new tibble should be structured, so I created a table to model the structure of gapminder, and then another to model what my new table should look like. 
+
+
+**Gapminder:**
+
+country | year | lifeExp
+--------|------|---------
+country1 | year | lifeExp
+country2 | year | lifeExp 
+country3 | year | lifeExp
+
+**New table:** 
+
+year | country1 | country2 
+-----|----------|---------
+1952 | lifeExp | lifeExp
+1957 | lifeExp | lifeExp 
+1962 | lifeExp | lifeExp
+
+
+
+To make our North America table, I'm going to select the variables that I want (year, country, and life expectancy), filter for the desired countries, and use spread() to change the structure. 
+
+To display, I've used knitr::kable. 
+
+
+```{r tibble life exp by year + country}
+north <- gapminder %>% 
+  select(year, country, lifeExp) %>% 
+  filter(country %in% c("Canada", "United States", "Mexico")) %>% 
+  spread(key = "country", value = "lifeExp")
+
+north %>% 
+  kable(caption = "North American life expectancy, 1952 - 2007", digits = 1) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
+  add_header_above(c(" " = 1, "Country" = 3))
+
+```
+
+Now, I can plot the life expectancy of two countries against each other to compare change over time. I've set the ratio of the x and y scales to 1 to allow for a more accurate comparison of change over time. With R's default ratio, the two countries appear to have an increase that is fairly similar. 
+
+```{r}
+ggplot(north, aes(Canada, Mexico, color = year)) +
+  geom_point() + 
+  ggtitle("Canadian vs. Mexican life expectancy, 1952 - 2007") +
+  coord_fixed(1) + #ratio of x to y 
+  scale_color_distiller(palette = "Blues", direction = 1, "Year") +
+  theme_dark()
+```
+
+Looks like while Canadian life expectancy is generally higher, Mexico's increased much more dramatically. 
+
+
+## Joins
+
+> Prompt: create a second data frame, complementary to Gapminder. Join this with (part of) Gapminder using a dplyr join function and make some observations about the process and result. Explore the different types of joins. 
+
+
+As a geographer, I spend quite a bit of time thinking, learning, and teaching about how to make maps. Not all data comes with geographic information, so a big part of my job is often figuring out a way to attach geographic data (think latitude and longitude coordinates) to a set of attribute data (like population or life expectancy). This seemed like a great way to explore using joins in R. 
+
+
+To start off, let's make tables to visualize how we will need the data frame to be structured in order to create a map from it. This is a bit over-simplified, but it's a good place to begin.  
+
+
+**Gapminder**
+
+country | year | lifeExp
+--------|------|---------
+country1 | year | lifeExp
+country2 | year | lifeExp 
+country3 | year | lifeExp
+
+
+**Map data**
+
+latitude | longitude | country |  year | LifeExp
+---------|-----------|---------|-------|--------
+latitude | longitude | country1 | year | lifeExp
+latitude | longitude | country2 | year | lifeExp
+latitude | longitude | country3 | year | lifeExp
+
+
+#### Getting started with mapping
+
+I'm going to look at the "maps" package help file to see what maps are available. 
+
+```{r maps package help}
+help(package = "maps")
+```
+
+From this, I've selected the "world" option, which is a fairly low resolution world map. Ideally I would use other packages to find something specifically tailored to North America, but I'm keeping it simple for now. 
+
+I'm just going to use glimpse() to check that the "world" data to make sure it has the spatial information I'm looking for. 
+
+```{r world data}
+world <- map_data("world")
+
+glimpse(world)
+```
+
+Yep, the world dataset includes geographic coordinates (latitude and longitude). Importantly, it also contains country names in the "region" column that we'll be able to join with country names in the gapminder data. 
+
+Now, I'm going to plot the world data in ggplot2 to create a blank world map. 
+
+```{r explore blank world map in ggplot2}
+world <- map_data("world")
+ggplot() + geom_polygon(data = world, aes(x=long, y = lat, group = group)) + 
+  coord_fixed(1.1) # set ratio of x to y
+```
+Yes, looks like this will work for my purpose. 
+
+ggplot2 uses a set of points and information on which order to connect those points in order to draw each country. I'm going to color the map by "region" (country) to make sure that these many points will be treated as a single entity when I try to map life expectancy. 
+
+```{r color world map by country}
+world <- map_data("world")
+ggplot() + geom_polygon(data = world, aes(x=long, y = lat, group = group, fill = region), color = "white") + 
+  coord_fixed(1.1) +
+  guides(fill=FALSE) #supress legend
+```
+
+Looks like this will work!
+
+
+#### Mapping North American life expectancy 
+
+Let's create a map of life expectancy for North America for the year 2007. 
+
+First, we need to use dplyr to create a data frame with North American life expectancy in 2007. 
+
+```{r get 07 data for north america, retitle country column}
+north07 <-gapminder %>%
+  filter(year == 2007) %>%
+  filter(country %in% c("Canada", "United States", "Mexico")) 
+
+north07 %>% 
+  kable(caption = "North American life expectancy, 2007", digits = 1) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+You'll notice that the north07 data frame lacks any spatial attributes (like latitude and longitude coordinates) to actually locate each country on the map. 
+
+To fix this, we'll need to join gapminder data with the geographic dataset, "world". Before we do that, let's make sure that the country names we need are the same in "world" as they are in "gapminder". 
+
+```{r check world country names}
+unique(world$region) %>% 
+  kable(caption = "North American life expectancy, 1952 - 2007", digits = 1) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+We can see that the "world" data uses Canada, USA, and Mexico. Because gapminder uses "United States", we will have to change the country name in our North America data order to join the data correctly. I will also re title the "country" column to "region", as that's what it's called in the "world" data.  
+
+#### Renaming "gapminder" to join with "world"
+
+```{r rename north07 for join}
+north <- north07 %>% 
+  rename(region = country) %>% 
+  mutate(region = as.character(region)) %>% #change "region" from factor to character 
+  mutate(region = ifelse(region == "United States", "USA", region))
+
+north %>% 
+  kable(caption = "North American population, 2007", digits = 1) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+Now that we've successfully prepared our North America data frame, let's join it to the world data and start mapping! 
+
+#### Joining and plotting life expectancy
+
+```{r world to gapminder north america data}
+northgeog <- right_join(world, north, by = "region")
+```
+
+This data set is huge (18,341 rows!), so let's check to make sure all the countries we need are represented. 
+
+```{r sanity check: northgeog}
+unique(northgeog$region)
+```
+
+Yep, looks like we have only the countries we want to map.  
+
+Let's draw this as a rough plot to see how it looks. 
+
+```{r rough map lifeExp for north america}
+
+ggplot() + 
+  geom_polygon(data = northgeog, aes(x=long, y = lat, group = group, fill = lifeExp)) +
+  coord_fixed(1.1) # ratio of x to y
+```
+
+Pretty good! This data appears unprojected, so Northern Canada is pretty distorted. We'll take care of that next. 
+
+```{r nice map of lifeExp for north america}
+
+ggplot() + 
+  geom_polygon(data = northgeog, aes(x=long, y = lat, group = group, fill = lifeExp)) +
+  coord_fixed(1.5) +
+  coord_map("albers", lat0 = 20, lat1 = 60) + # set projection
+  scale_fill_distiller(palette = 2, direction = 1, "Life\nexpectancy") +
+  theme_void() +
+  ggtitle("North American life expectancy, 2007") 
+  
+```
+
+The projection I'm using isn't quite suited for this map, but it's less distorted than the unprojected map above. If this exercise were about maps, and not joins, I would spend more time on this! 
+
+Real quick, here is another projection option: mollweide. 
+
+```{r other coordinate systems, maybe leave out}
+ggplot() + 
+  geom_polygon(data = northgeog, aes(x=long, y = lat, group = group, fill = lifeExp)) +
+  coord_fixed(1.1) +
+  coord_map("mollweide")
+
+# no winkel-triple or robinson available 
+```
+
+
+
+#### World map of life expectancy 
+
+Now that I've made the North America map, I want to try using the same join workflow to create a world map of the same data. 
+
+First, by filtering to the 2007 dataset and renaming "country" to "region" to facilitate the join. 
+
+```{r get 07 data}
+worldlife <-gapminder %>%
+  filter(year == 2007) %>% 
+  rename(region = country)
+
+```
+
+
+```{r join world to gapminder data}
+worldlifegeog <- right_join(world, worldlife, by = "region")
+
+```
+
+
+```{r rough map of world lifeExp}
+ggplot() + 
+  geom_polygon(data = worldlifegeog, aes(x=long, y = lat, group = group, fill = lifeExp)) +
+  coord_fixed(1.1)
+
+```
+
+Clearly, this is missing a few countries. If I were to do this properly, I would need to select all the countries that don't have a consistent name in the "world" and "gapminder" datasets and rename them to match -- like I did with the US in the North America maps. For now, we'll have to learn to live without the DRC, Britain, Russia and the United States (to name a few).  
+
+
+#### Exploring which type of join to use
+
+I tried a semi-join of world and the North America data, but it only selected the rows that corresponded to Canada, the US, and Mexico in the world data. This data frame is way too big to show.  
+
+```{r}
+semiwn <- semi_join(world, north)
+glimpse(semiwn)
+```
+
+I made sure that this semi-join only included North America. 
+
+```{r}
+unique(semiwn$region)
+```
+
+
+
+I can also the the same semi-join, but with North America and world data instead. This produces a table with just one row per country-- essentially, recreating the "north07" data frame I used to make the "north" data frame in the first place! 
+
+```{r}
+
+semi_join(north, world) %>% 
+  kable(caption = "", digits = 1) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+
+Inner_join produces the same results as the right join we used to merge the geographic and attribute data, so I probably could have used this to make the map as well. Again, not printing because of the 18,000+ rows...  
+
+```{r semi-join world to north07}
+innerjworld <- inner_join(world, north, by = "region")
+
+```
+
+
+Thanks for reading! :earth_americas: :globe_with_meridians:
+
+## Special thanks to
+
+- [Mapping help](http://eriqande.github.io/rep-res-web/lectures/making-maps-with-R.html)
+
+- [Dplyr help](https://csgillespie.github.io/efficientR/dplyr.html)
+
+- [Vector help](https://stackoverflow.com/questions/7755240/list-distinct-values-in-a-vector-in-r)
+
+- [Continuous variables with colorbrewer](https://ggplot2.tidyverse.org/reference/scale_brewer.html)
+
+- [Setting scale direction with colorbrewer](https://github.com/tidyverse/ggplot2/issues/1439)
+
+- [Projections](https://stackoverflow.com/questions/31216951/how-do-i-change-the-projection-method-used-by-r-for-mapping-coordinates)
+
+- [Albers latitude](http://spatialreference.org/ref/esri/north-america-albers-equal-area-conic/prettywkt/)
+
+- [Super helpful knitr::kable reference](https://rpubs.com/haozhu233/kableExtra_HTML)
